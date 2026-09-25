@@ -35,6 +35,7 @@ body { background:var(--bg); color:#fff; font-family:"Mulish","Segoe UI",system-
   <iframe id="frame" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen></iframe>
   <div id="vidwrap"><video id="vid" controls playsinline autoplay></video></div>
   <div id="status"><div class="spin"></div><div id="statusTxt">Préparation de la lecture…</div><small>Le meilleur serveur est choisi automatiquement.</small></div>
+  <button id="svNext" style="display:none;position:absolute;bottom:14px;right:14px;z-index:6;background:rgba(23,27,36,.94);color:#DDE3EC;border:0;border-radius:10px;padding:9px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.45)">Autre serveur</button>
 </div>
 <div id="fallback"></div>
 <script src="hls.min.js"></script>
@@ -128,14 +129,44 @@ else {
     if (TMP) cands.push({ name:"VidLink", url: s != null ? "https://vidlink.pro/tv/" + TMP + "/" + s + "/" + (e || 1) : "https://vidlink.pro/movie/" + TMP });
   }
 
-  function win(url){
+  let curIdx = -1;
+  function win(url, idx){
     token = -1;
     CUR = url;
-    if (window.FXLOG) FXLOG.log("INFO", "Serveur choisi : " + url);
+    curIdx = (idx != null) ? idx : cands.findIndex(c => c.url === url);
+    const nm = (cands[curIdx] && cands[curIdx].name) || "serveur";
+    if (window.FXLOG) FXLOG.log("INFO", "Serveur choisi : " + nm + " : " + url);
     const frame = document.getElementById("frame");
     frame.style.display = "block";
+    let loaded = false;
+    frame.addEventListener("load", function(){
+      loaded = true;
+      clearTimeout(frame.__t);
+      if (window.FXLOG) FXLOG.log("INFO", "Iframe « " + nm + " » chargé — si rien ne joue, touche « Autre serveur »");
+    });
+    // Iframe qui ne charge jamais (serveur mort ou bloqué) → passer au suivant
+    clearTimeout(frame.__t);
+    frame.__t = setTimeout(function(){
+      if (loaded || CUR !== url) return;
+      if (cands.length < 2) return;
+      const ni = (curIdx + 1) % cands.length;
+      if (window.FXLOG) FXLOG.log("API-KO", "Iframe « " + nm + " » n'a pas chargé en 12 s → " + cands[ni].name);
+      win(cands[ni].url, ni);
+    }, 12000);
     frame.src = url;
-    frame.onload = function(){ if (window.FXLOG) FXLOG.log("INFO", "Iframe chargé (200) — si rien ne s'affiche, essaie « Lecteur officiel »"); };
+    // Bouton « Autre serveur » : bascule manuelle (ex. VidSrc vide/bloqué → 2Embed)
+    const sv = document.getElementById("svNext");
+    if (sv) {
+      if (cands.length > 1) {
+        sv.style.display = "block";
+        sv.textContent = "Autre serveur (" + cands[(curIdx + 1) % cands.length].name + ")";
+        sv.onclick = function(){
+          const ni = (curIdx + 1) % cands.length;
+          if (window.FXLOG) FXLOG.log("CLIQ", "Changement manuel de serveur → " + cands[ni].name);
+          win(cands[ni].url, ni);
+        };
+      } else sv.style.display = "none";
+    }
     hideStatus();
   }
   function tryServer(){
@@ -163,7 +194,7 @@ else {
         if (window.FXLOG) FXLOG.log(st === 200 ? "API" : "API-KO", "Sonde " + p.name + " → " + st + " : " + p.url.slice(0, 90));
         if (st !== 200) { if (sequential) check(i + 1); return; }
         settled = true;
-        win(p.url);
+        win(p.url, i);
       };
       try { probe(p.url, cb); } catch(err) { if (sequential) check(i + 1); }
     }
@@ -174,7 +205,7 @@ else {
     setTimeout(function(){
       if (tk !== token || settled) return;
       settled = true;
-      win(cands[0].url);
+      win(cands[0].url, 0);
       addFallback("Lecture bloquée ? Ouvrir la page directement", () => location.href = CUR);
       if (EXT) addFallback("Lecteur officiel", () => location.href = EXT);
     }, 8000);

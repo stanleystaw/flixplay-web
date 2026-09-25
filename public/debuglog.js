@@ -121,12 +121,13 @@
   if (of) window.fetch = function (u, o) {
     var t0 = Date.now();
     var uu = String(u).replace(/https?:\/\/[^\/]+\//, "");
+    var isProbe = uu.indexOf("probe/") === 0; // déjà logué au niveau App.fetch / lecteur
     var p = of.apply(this, arguments);
     p.then(function (r) {
-      push(r.status >= 400 ? "API-KO" : "API", uu.slice(0, 110) + " → " + r.status + " (" + (Date.now() - t0) + " ms)");
+      if (!isProbe) push(r.status >= 400 ? "API-KO" : "API", uu.slice(0, 110) + " → " + r.status + " (" + (Date.now() - t0) + " ms)");
       return r;
     }, function (err) {
-      push("API-KO", uu.slice(0, 110) + " → réseau : " + err.message);
+      if (!isProbe) push("API-KO", uu.slice(0, 110) + " → réseau : " + err.message);
       throw err;
     });
     return p;
