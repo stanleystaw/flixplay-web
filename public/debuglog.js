@@ -133,14 +133,19 @@
   };
   if (window.App && window.App.fetch) {
     var ofA = window.App.fetch;
+    /* Protocole pont : cb est une CHAÎNE (clé), le handler vit dans window[cb].
+       On enveloppe le handler pour lire le statut, sans casser le protocole. */
     window.App.fetch = function (url, cb) {
       var t0 = Date.now();
       var uu = String(url).replace(/https?:\/\/[^\/]+\//, "");
-      var orig = cb;
-      ofA.call(window.App, url, function (resp) {
-        try { push(resp.status >= 400 ? "API-KO" : "API", uu.slice(0, 110) + " → " + resp.status + " (" + (Date.now() - t0) + " ms)"); } catch (e) {}
-        orig(resp);
-      });
+      var origFn = window[cb];
+      if (typeof origFn === "function") {
+        window[cb] = function (resp) {
+          try { push(resp.status >= 400 ? "API-KO" : "API", uu.slice(0, 110) + " → " + resp.status + " (" + (Date.now() - t0) + " ms)"); } catch (e) {}
+          return origFn(resp);
+        };
+      }
+      ofA.call(window.App, url, cb);
     };
   }
 
