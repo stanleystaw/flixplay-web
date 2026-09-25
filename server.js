@@ -8,6 +8,10 @@ const path = require("path");
 const PORT = process.env.PORT || 8080;
 const ROOT = path.join(__dirname, "public");
 const MDX_HOST = "api.mangadex.org";
+/* API publique d'Anime-Sama (sans auth) — extraite de l'app Kibo :
+   catalog par catégories + planning des sorties de la semaine.
+   Pas d'en-tête CORS du tout → on la proxifie comme MangaDex. */
+const ASAMA_HOST = "europe-west1-anime-sama-1464a.cloudfunctions.net";
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -33,11 +37,14 @@ const server = http.createServer((req, res) => {
   try { u = new URL(req.url, "http://localhost"); } catch (e) { res.writeHead(400); res.end("bad request"); return; }
   const p = decodeURIComponent(u.pathname);
 
-  /* ── Proxy MangaDex (CORS ouvert) ── */
-  if (p === "/proxy/mangadex" || p.startsWith("/proxy/mangadex/")) {
-    const sub = p.slice("/proxy/mangadex".length) || "/";
-    const target = new URL("https://" + MDX_HOST + (sub.startsWith("/") ? sub : "/" + sub) + (u.search || ""));
-    const headers = Object.assign({}, req.headers, { host: MDX_HOST });
+  /* ── Proxy MangaDex + Anime-Sama (CORS ouvert) ── */
+  let proxyHost = null, proxySub = null;
+  if (p === "/proxy/mangadex" || p.startsWith("/proxy/mangadex/")) { proxyHost = MDX_HOST; proxySub = p.slice("/proxy/mangadex".length); }
+  else if (p === "/proxy/animesama" || p.startsWith("/proxy/animesama/")) { proxyHost = ASAMA_HOST; proxySub = p.slice("/proxy/animesama".length); }
+  if (proxyHost) {
+    const sub = proxySub || "/";
+    const target = new URL("https://" + proxyHost + (sub.startsWith("/") ? sub : "/" + sub) + (u.search || ""));
+    const headers = Object.assign({}, req.headers, { host: proxyHost });
     delete headers.origin; delete headers.referer; delete headers.cookie;
     delete headers["access-control-request-method"]; delete headers["access-control-request-headers"];
     const opts = { hostname: target.hostname, port: 443, path: target.pathname + target.search, method: req.method, headers };

@@ -196,6 +196,12 @@ const MDX = (typeof App !== "undefined" && App.platform && App.platform() === "w
   ? location.origin + "/proxy/mangadex"
   : "https://api.mangadex.org";
 const IPTV = "https://iptv-org.github.io/iptv";
+/* API publique d'Anime-Sama (sans auth, extraite de l'app Kibo) :
+   /animes?action=searchByCategory&categories=... + /caching (planning).
+   Pas de CORS → proxy sur le web. */
+const ASAMA = (typeof App !== "undefined" && App.platform && App.platform() === "web")
+  ? location.origin + "/proxy/animesama"
+  : "https://europe-west1-anime-sama-1464a.cloudfunctions.net";
 const RAILS = [["28","Action"],["35","Comédie"],["16","Animation"],["878","Sci-Fi"],["53","Thriller"],["10749","Romance"]];
 const IPTV_CATS = [
   ["bj.m3u","Bénin",`${IPTV}/countries/bj.m3u`],
@@ -270,6 +276,7 @@ document.addEventListener("click", (ev) => {
   else if (t === "series") seriesDetail(c.dataset.imdb, c.dataset.tmdb);
   else if (t === "anime") animeDetail(c.dataset.mal);
   else if (t === "manga") mangaDetail(c.dataset.mid);
+  else if (t === "asama") startPlayback(c.dataset.title, "anime", "", "", null, null);
   else if (t === "fav") fAvOpen(c.dataset.ref, c.dataset.name, c.dataset.kind, c.dataset.tmdb);
   else if (t === "histp") startPlayback(c.dataset.title, c.dataset.kind || "film", c.dataset.imdb || "", c.dataset.tmdb || "",
     c.dataset.s === "" || c.dataset.s == null ? null : +c.dataset.s,
@@ -627,6 +634,42 @@ async function renderAnime(){
          <div class="grid">${data.map(animeCard).join("")}</div>
          <div class="foot">Lecture intégrée automatique, ou lecteur officiel si nécessaire</div>`)
     : frag(`<div class="empty">Anime en ligne indisponibles — la sélection « Incontournables » reste consultable.</div>`));
+  renderAsamaSection();
+}
+/* Catalogue francophone (API Anime-Sama, sans auth) + planning des sorties de la semaine */
+function renderAsamaSection(){
+  const head = el(`<div class="section-title" style="margin-top:18px">Anime-Sama <small>catalogue francophone · sans inscription</small></div>`);
+  const rail = el('<div class="rail"><div class="spin sm" style="margin:14px"></div></div>');
+  api(`${ASAMA}/animes?action=searchByCategory&categories=Action,Aventure,Comedie,Drame,Romance`).then(d => {
+    const res = (d.data && d.data.results) || [];
+    rail.innerHTML = res.length ? res.slice(0, 15).map(x => `
+      <div class="card" data-ftype="asama" data-title="${esc(x.name)}">
+        <div class="poster">${imgTag(x.imageurl)}<div class="ph">${ic("star")}</div>
+          ${x.vote ? `<span class="badge gray">${Math.round((x.vote || 0) / 1000)}k votes</span>` : ""}
+        </div>
+        <div class="info"><div class="t">${esc(x.name)}</div><div class="s">Touche pour lire</div></div></div>`).join("")
+      : '<div class="empty" style="padding:10px 0">Catalogue indisponible.</div>';
+  }).catch(() => { rail.replaceWith(el('<div class="empty" style="padding:10px 0">Catalogue Anime-Sama indisponible pour le moment.</div>')); });
+  view().appendChild(head);
+  view().appendChild(rail);
+  const h2 = el(`<div class="section-title" style="margin-top:18px">Sorties de la semaine <small>Anime-Sama · VF / VOSTFR</small></div>`);
+  const box2 = el('<div class="rows"><div class="spin sm" style="margin:14px"></div></div>');
+  api(`${ASAMA}/caching`).then(d => {
+    const days = d.data || {};
+    const order = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+    const rows = [];
+    order.forEach(day => { (days[day] || []).forEach(it => rows.push(Object.assign({ day }, it))); });
+    box2.innerHTML = rows.length ? rows.slice(0, 35).map(x => `
+      <div class="row" data-title="${esc(x.title)}">
+        <div class="thumb" style="background:#14171F;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#8A919C">${ic("star")}</div>
+        <div class="grow"><div class="t">${esc(x.title)}</div><div class="s">${esc(x.day)}${x.hour && x.hour !== "?" ? " · " + esc(x.hour) : ""}</div></div>
+        ${x.lang ? `<span class="badge ${x.lang === "VF" ? "grad" : "gray"}">${esc(x.lang)}</span>` : ""}
+      </div>`).join("") : '<div class="empty">Aucune sortie listée cette semaine.</div>';
+    box2.querySelectorAll(".row[data-title]").forEach(r => { r.onclick = () => startPlayback(r.dataset.title, "anime", "", "", null, null); });
+    view().appendChild(el(`<div class="foot">Touche sur un titre = lecture directe (serveur par titre) · Source : Anime-Sama (site tiers, zone grise)</div>`));
+  }).catch(() => { box2.replaceWith(el('<div class="empty">Planning indisponible pour le moment.</div>')); });
+  view().appendChild(h2);
+  view().appendChild(box2);
 }
 function animeCardBase(a){
   return `<div class="card" data-ftype="anime" data-mal="${a.mal}">
