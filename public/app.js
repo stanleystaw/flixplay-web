@@ -47,7 +47,12 @@ const $ = (sel) => document.querySelector(sel);
 const view = () => document.getElementById("view");
 function el(html){ const t = document.createElement("template"); t.innerHTML = html; return t.content.firstElementChild; }
 function frag(html){ const t = document.createElement("template"); t.innerHTML = html; return t.content; }
-function setView(html){ const v = view(); v.innerHTML = ""; v.appendChild(frag(html)); }
+/* Accepte un OU un élément DOM (evite le bug "[object HTMLDivElement]" en innerHTML) */
+function mount(container, content){
+  if (typeof content === "string") container.innerHTML = content;
+  else { container.innerHTML = ""; container.appendChild(content); }
+}
+function setView(html){ const v = view(); v.innerHTML = ""; if (typeof html === "string") v.appendChild(frag(html)); else v.appendChild(html); }
 const store = {
   get(k, d){ try { const v = localStorage.getItem("fx_" + k); return v == null ? d : JSON.parse(v); } catch(e){ return d; } },
   set(k, v){ try { localStorage.setItem("fx_" + k, JSON.stringify(v)); } catch(e){} },
@@ -250,7 +255,7 @@ function doSearch(qs){
 /* ─────────── Modale / confirmation ─────────── */
 function openModal(html){
   const b = document.getElementById("modalBody");
-  b.innerHTML = html;
+  mount(b, html);
   b.scrollTop = 0;
   document.getElementById("modal").classList.remove("hidden");
 }
