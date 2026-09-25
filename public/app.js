@@ -4,11 +4,18 @@
 
 /* ─────────── Couche API (bridge natif : GET + POST, sans CORS) ─────────── */
 let __cbN = 0;
-function api(url){
+function api(url, tries){
+  tries = tries || 0;
   return new Promise((res, rej) => {
     const id = "__cb" + (++__cbN);
     window[id] = (resp) => {
       delete window[id];
+      // Robustesse : limite de débit (429), serveur en panne (5xx) ou coupure réseau (0)
+      // → une seule nouvelle tentative 2,5 s plus tard (MangaDex anon = 60 req/min)
+      if ((resp.status === 429 || resp.status >= 500 || resp.status === 0) && tries < 1) {
+        setTimeout(() => api(url, tries + 1).then(res, rej), 2500);
+        return;
+      }
       let body = null;
       try { body = JSON.parse(resp.body); } catch(e){ body = resp.body; }
       (resp.status >= 400) ? rej({status: resp.status, body}) : res(body);
