@@ -1,0 +1,28 @@
+name: Uptime ping FlixPlay
+
+# Robot d'uptime : frappe le site toutes les 5 minutes pour que l'instance
+# Render (plan gratuit) ne s'endorme jamais -> pas de cold start pour l'utilisateur.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping le site (healthz)
+        run: |
+          code=$(curl -s -o /tmp/resp.json -w "%{http_code}" --max-time 90 https://flixplay-web.onrender.com/healthz || echo 000)
+          echo "HTTP $code -> $(head -c 200 /tmp/resp.json 2>/dev/null)"
+          if [ "$code" = "200" ] && grep -q '"ok":true' /tmp/resp.json; then
+            echo "Site actif ✓"
+          else
+            echo "SITE INJOIGNABLE ou reponse inattendue"
+            exit 1
+          fi
+      - name: Ping la page d'accueil (charge le serveur)
+        run: |
+          code=$(curl -s -o /tmp/page.html -w "%{http_code}" --max-time 90 https://flixplay-web.onrender.com/ || echo 000)
+          echo "Accueil HTTP $code"
+          [ "$code" = "200" ] || exit 1
