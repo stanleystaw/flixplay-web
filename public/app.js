@@ -133,13 +133,30 @@ window.__dlDone = function(id, path){
 };
 
 /* ─────────── Lecture intégrée : le meilleur serveur est choisi automatiquement ─────────── */
-function startPlayback(title, kind, imdb, tmdb, s, e){
+function startPlayback(title, kind, imdb, tmdb, s, e, mal, ext){
   const u = "player.html?t=" + encodeURIComponent(title) + "&kind=" + encodeURIComponent(kind || "film") +
     "&imdb=" + (imdb || "") +
-    "&tmdb=" + (tmdb || "") + "&s=" + (s == null ? "" : s) + "&e=" + (e == null ? "" : e);
-  addHistory({title, kind, imdb, tmdb, s, e, type:"video", url: u,
-    ref: (imdb || tmdb || "") + (s != null ? ":" + s + ":" + e : "")});
+    "&tmdb=" + (tmdb || "") + "&s=" + (s == null ? "" : s) + "&e=" + (e == null ? "" : e) +
+    "&mal=" + (mal || "") + (ext ? "&ext=" + encodeURIComponent(ext) : "");
+  if (window.FXLOG) FXLOG.log("NAV", "Lecture : « " + title + " » [" + (kind || "film") + "] imdb=" + (imdb || "-") + " mal=" + (mal || "-"));
+  addHistory({title, kind, imdb, tmdb, s, e, mal: mal || "", type:"video", url: u,
+    ref: (imdb || tmdb || mal || "") + (s != null ? ":" + s + ":" + e : "")});
   location.href = u;
+}
+/* Anime-Sama : titre → ID AniList (pour les serveurs par ID) + stream officiel en secours */
+async function asamaPlay(title){
+  if (window.FXLOG) FXLOG.log("NAV", "Anime-Sama : « " + title + " » → recherche AniList…");
+  toast("Préparation de la lecture…");
+  let mal = "", ext = "";
+  try {
+    const d = (await anilist(`Page(perPage:1){ media(search: $q, type: ANIME){ idMal streamingEpisodes{ url } } }`, {q: title})).Page.media;
+    if (d && d.length) {
+      mal = d[0].idMal || "";
+      ext = (d[0].streamingEpisodes && d[0].streamingEpisodes[0] && d[0].streamingEpisodes[0].url) || "";
+      if (window.FXLOG) FXLOG.log("INFO", "AniList : mal=" + (mal || "introuvable") + (ext ? " + stream officiel" : ""));
+    }
+  } catch(e) { if (window.FXLOG) FXLOG.log("ERREUR", "AniList : " + e.message); }
+  startPlayback(title, "anime", "", "", null, null, mal, ext);
 }
 /* Lecture NATIVE d'un flux direct (Internet Archive) : <video> + hls.js, aucun intermédiaire */
 function startDirect(url, kind, title){
@@ -288,7 +305,7 @@ document.addEventListener("click", (ev) => {
   else if (t === "series") seriesDetail(c.dataset.imdb, c.dataset.tmdb);
   else if (t === "anime") animeDetail(c.dataset.mal);
   else if (t === "manga") mangaDetail(c.dataset.mid);
-  else if (t === "asama") startPlayback(c.dataset.title, "anime", "", "", null, null);
+  else if (t === "asama") asamaPlay(c.dataset.title);
   else if (t === "fav") fAvOpen(c.dataset.ref, c.dataset.name, c.dataset.kind, c.dataset.tmdb);
   else if (t === "histp") startPlayback(c.dataset.title, c.dataset.kind || "film", c.dataset.imdb || "", c.dataset.tmdb || "",
     c.dataset.s === "" || c.dataset.s == null ? null : +c.dataset.s,
@@ -700,7 +717,7 @@ function renderAsamaSection(){
         <div class="grow"><div class="t">${esc(x.title)}</div><div class="s">${esc(x.day)}${x.hour && x.hour !== "?" ? " · " + esc(x.hour) : ""}</div></div>
         ${x.lang ? `<span class="badge ${x.lang === "VF" ? "grad" : "gray"}">${esc(x.lang)}</span>` : ""}
       </div>`).join("") : '<div class="empty">Aucune sortie listée cette semaine.</div>';
-    box2.querySelectorAll(".row[data-title]").forEach(r => { r.onclick = () => startPlayback(r.dataset.title, "anime", "", "", null, null); });
+    box2.querySelectorAll(".row[data-title]").forEach(r => { r.onclick = () => asamaPlay(r.dataset.title); });
     view().appendChild(el(`<div class="foot">Touche sur un titre = lecture directe (serveur par titre) · Source : Anime-Sama (site tiers, zone grise)</div>`));
   }).catch(() => { box2.replaceWith(el('<div class="empty">Planning indisponible pour le moment.</div>')); });
   view().appendChild(h2);
@@ -794,7 +811,7 @@ async function animeWatch(mal){
   // 2) Lecteur par titre (VidSrc anime) — fonctionne sans aucun ID,
   //    avec le lecteur officiel AniList (Crunchyroll…) en secours
   const ext = window.__aniExt ? "&ext=" + encodeURIComponent(window.__aniExt) : "";
-  const u = "player.html?t=" + encodeURIComponent(t1) + "&kind=anime" + (imdb ? "&imdb=" + imdb : "") + ext;
+  const u = "player.html?t=" + encodeURIComponent(t1) + "&kind=anime" + (imdb ? "&imdb=" + imdb : "") + "&mal=" + (mal || "") + ext;
   addHistory({title: t1, kind: "anime", imdb, type: "video", url: u, ref: (imdb || "anime:" + t1)});
   closeModal();
   location.href = u;

@@ -39,6 +39,7 @@ body { background:var(--bg); color:#fff; font-family:"Mulish","Segoe UI",system-
 <div id="fallback"></div>
 <script src="hls.min.js"></script>
 <script src="bridge.js"></script>
+<script src="debuglog.js"></script>
 <script>
 const P = new URLSearchParams(location.search);
 const T = P.get("t") || "Lecture";
@@ -51,7 +52,9 @@ const e = E === "" || E == null ? null : (+E);
 const DIRECT = P.get("direct") || "";
 const DKEY = P.get("directKind") || "";
 const EXT = P.get("ext") || "";
+const MAL = P.get("mal") || "";
 document.getElementById("title").textContent = T;
+if (window.FXLOG) FXLOG.log("INFO", "Lecteur : « " + T + " » kind=" + KIND + " imdb=" + (IMP || "-") + " mal=" + (MAL || "-") + (DIRECT ? " [FLUX DIRECT]" : ""));
 
 let CUR = null;
 let token = 0;
@@ -113,6 +116,7 @@ if (DIRECT) {
 else {
   const cands = [];
   if (KIND === "anime") {
+    if (MAL) cands.push({ name:"VidSrc (ID)", url: "https://vidsrc.sh/embed/anime/mal/" + MAL });
     cands.push({ name:"VidSrc", url: "https://vidsrc.sh/embed/anime?q=" + encodeURIComponent(T) });
     if (IMP) cands.push({ name:"2Embed", url: "https://www.2embed.cc/embed/" + IMP });
   } else {
@@ -127,9 +131,11 @@ else {
   function win(url){
     token = -1;
     CUR = url;
+    if (window.FXLOG) FXLOG.log("INFO", "Serveur choisi : " + url);
     const frame = document.getElementById("frame");
     frame.style.display = "block";
     frame.src = url;
+    frame.onload = function(){ if (window.FXLOG) FXLOG.log("INFO", "Iframe chargé (200) — si rien ne s'affiche, essaie « Lecteur officiel »"); };
     hideStatus();
   }
   function tryServer(){
@@ -139,10 +145,14 @@ else {
       if (EXT) addFallback("Lecteur officiel", () => location.href = EXT);
       return;
     }
-    // Sonde tous les serveurs EN PARALLÈLE : le 1er à répondre part
+    // Anime avec ID : les 2 formats VidSrc répondent 200 (shell JS) → pas de course,
+    // on teste le format par ID d'abord, puis la recherche par titre.
+    const sequential = (KIND === "anime" && MAL);
     const tk = ++token;
     let settled = false;
-    cands.forEach((p, i) => {
+    function check(i){
+      const p = cands[i];
+      if (!p) return;
       const cb = "__chk" + tk + "_" + i;
       window[cb] = function(resp){
         if (tk !== token || settled) return;
@@ -150,13 +160,16 @@ else {
         if (PROBE_PREFIX && st === 200) {
           try { st = JSON.parse(resp.body).status; } catch(err) { st = 0; }
         }
-        if (st !== 200) return;
+        if (window.FXLOG) FXLOG.log(st === 200 ? "API" : "API-KO", "Sonde " + p.name + " → " + st + " : " + p.url.slice(0, 90));
+        if (st !== 200) { if (sequential) check(i + 1); return; }
         settled = true;
         win(p.url);
       };
-      try { probe(p.url, cb); } catch(err) {}
-    });
-    setStatus("Recherche du meilleur serveur…", cands.length + " serveur(s) sondé(s) en parallèle.");
+      try { probe(p.url, cb); } catch(err) { if (sequential) check(i + 1); }
+    }
+    if (sequential) check(0);
+    else cands.forEach((p, i) => check(i)); // EN PARALLÈLE : le 1er à répondre part
+    setStatus("Recherche du meilleur serveur…", (sequential ? cands.length + " format(s) testé(s) dans l'ordre" : cands.length + " serveur(s) sondé(s) en parallèle") + ".");
     // Personne n'a répondu en 8 s → on tente le 1er serveur directement dans l'iframe
     setTimeout(function(){
       if (tk !== token || settled) return;
