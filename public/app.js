@@ -809,6 +809,20 @@ const mdLang = (c) => {
   const v = (c && c.attributes) ? c.attributes.translatedLanguage : "";
   return Array.isArray(v) ? (v[0] || "") : (v || "");
 };
+/* Nom d'un champ MangaDex multi-langues : {en:"…", fr:"…"} ou string */
+const mdName = (v) => {
+  if (typeof v === "string") return v;
+  if (v && typeof v === "object") return v.en || Object.values(v)[0] || "";
+  return "";
+};
+/* Tag MangaDex : {id, type:"tag", attributes:{name:{en:"…"}}} */
+const mdTagName = (t) => {
+  if (!t) return "";
+  if (typeof t === "string") return t;
+  if (t.attributes && t.attributes.name != null) return mdName(t.attributes.name);
+  if (t.name != null) return mdName(t.name);
+  return "";
+};
 function mdTitle(a){
   const t = a.title;
   if (typeof t === "string") return t;
@@ -929,10 +943,10 @@ function mangaRender(mid, chs, a, coverImg){
       <div><div class="t">${esc(mdTitle(a))}</div>
         <div class="s">${a.status === "ongoing" ? "En cours" : (a.status || "")}
         ${a.lastVolume ? " · Vol. " + a.lastVolume : ""}
-        ${a.lastChapter != null ? " · Ch. " + a.lastChapter : ""}<br>
+        ${a.lastChapter ? " · Ch. " + a.lastChapter : ""}<br>
         ${a.availableTranslatedLanguages ? "Trad. : " + esc(a.availableTranslatedLanguages.join(", ")) : ""}</div></div>
     </div>
-    <div class="m-meta">${(a.tags||[]).slice(0,6).map(t=>`<span class="tag">${esc(t.name||t)}</span>`).join("")}</div>
+    <div class="m-meta">${(a.tags||[]).map(mdTagName).filter(Boolean).slice(0,6).map(n=>`<span class="tag">${esc(n)}</span>`).join("")}</div>
     <div class="desc">${esc(stripHtml((typeof a.description === "string" ? a.description : (a.description && a.description.en)) || ""))}</div>
     <div class="btnrow" style="margin-bottom:8px">
       <button class="btn play" onclick="openChapter(0)">${ic("book")}Lecture</button>
