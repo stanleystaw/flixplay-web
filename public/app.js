@@ -803,6 +803,12 @@ function renderAnimeSearch(qs){
 let mangaMode = "latest";
 let mangaLang = "all";
 const LANG_CHIPS = [["all","Tous"],["fr","Français"],["en","English"],["ja","Japonais"]];
+/* MangaDex feed : la LANGUE d'un chapitre est dans translatedLanguage —
+   version est un numéro de version (int), pas une langue ! */
+const mdLang = (c) => {
+  const v = (c && c.attributes) ? c.attributes.translatedLanguage : "";
+  return Array.isArray(v) ? (v[0] || "") : (v || "");
+};
 function mdTitle(a){
   const t = a.title;
   if (typeof t === "string") return t;
@@ -876,13 +882,13 @@ async function loadMangaCovers(items){
 function mangaChaptersList(chs, lang, pref){
   let l = chs;
   if (lang !== "all") {
-    const f = l.filter(c => (c.attributes.version || "").toLowerCase() === lang);
+    const f = l.filter(c => mdLang(c).toLowerCase() === lang);
     if (f.length) l = f;
   }
   if (pref !== "all") {
     l = l.slice().sort((a,b) =>
-      (((b.attributes.version||"").toLowerCase() === pref) ? 1 : 0) -
-      (((a.attributes.version||"").toLowerCase() === pref) ? 1 : 0));
+      (mdLang(b).toLowerCase() === pref ? 1 : 0) -
+      (mdLang(a).toLowerCase() === pref ? 1 : 0));
   }
   return l;
 }
@@ -916,7 +922,7 @@ function mangaRender(mid, chs, a, coverImg){
   window.__mangaChs = viewChs;
   const isFav = FAVORITES.some(f => f.ref === mid && f.kind === "manga");
   const filtered = mangaLang !== "all" && viewChs.length !== chs.length;
-  const emptyFilter = mangaLang !== "all" && chs.filter(c => (c.attributes.version||"").toLowerCase() === mangaLang).length === 0;
+  const emptyFilter = mangaLang !== "all" && chs.filter(c => mdLang(c).toLowerCase() === mangaLang).length === 0;
   openModal(`
     <div class="m-head">
       <div class="m-cover"><div class="ph">${ic("book")}</div>${coverImg ? `<img src="${esc(coverImg)}" onerror="this.remove()">` : ""}</div>
@@ -938,7 +944,7 @@ function mangaRender(mid, chs, a, coverImg){
     <div class="section-title" style="font-size:14px">Chapitres <small>${viewChs.length}${filtered ? " (filtrés)" : ""} — plus récents d'abord</small></div>
     <div class="m-eps">${viewChs.slice(0, 80).map((c, idx) => {
       const ca = c.attributes;
-      const ver = (ca.version || "").toUpperCase();
+      const ver = mdLang(c).toUpperCase();
       return `<div class="ep chap" onclick="openChapter(${idx})">
         <div class="n">Ch.${ca.chapter != null ? ca.chapter : (ca.volume != null ? "V"+ca.volume : "?")}</div>
         <div class="t">${esc(ca.title || "")}</div>
