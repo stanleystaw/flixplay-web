@@ -53,37 +53,72 @@ const EMBEDS = [
   { name:"VidSrc",     kind:"imdb", m:id=>"https://vidsrcapi.com/embed/movie/" + id,                 t:(id,a,b)=>"https://vidsrcapi.com/embed/tv/" + id + "/" + a + "/" + b },
 ];
 let CUR = null;
-let idx = 0, token = 0;
+let token = 0;
 const cands = EMBEDS.filter(p => (p.kind === "imdb" ? IMP : TMP));
+const urlFor = (p) => {
+  const id = p.kind === "imdb" ? IMP : TMP;
+  return s != null ? p.t(id, s, e) : p.m(id);
+};
+/* Les sites d'embed ne renvoient pas d'en-tête CORS : le navigateur ne peut pas les sonder
+   directement. Sur le web, la sonde passe par notre propre serveur (même origine) :
+   /probe/<url> → {status: n}. Dans l'app Android, la sonde est directe (pas de CORS). */
+const PROBE_PREFIX = (typeof App !== "undefined" && App.platform && App.platform() === "web")
+  ? location.origin + "/probe/"
+  : "";
+function probe(url, cb){
+  App.fetch(PROBE_PREFIX ? PROBE_PREFIX + encodeURIComponent(url) : url, cb);
+}
 
-function setStatus(txt){
+function setStatus(txt, sub){
   document.getElementById("status").style.display = "flex";
   document.getElementById("statusTxt").textContent = txt;
+  if (sub != null) document.getElementById("status").querySelector("small").textContent = sub;
+}
+function win(url){
+  token = -1;
+  CUR = url;
+  document.getElementById("frame").src = url;
+  document.getElementById("status").style.display = "none";
+}
+function showFallback(label){
+  document.getElementById("fallback").style.display = "block";
+  const b = document.getElementById("fbBtn");
+  b.textContent = label || "Lecture bloquée ? Ouvrir la page directement";
+  b.onclick = () => { if (CUR) location.href = CUR; };
 }
 function tryServer(){
-  if (idx >= cands.length) {
-    setStatus("Aucun serveur ne répond pour l'instant.");
-    document.getElementById("status").querySelector("small").textContent = "Vérifie ta connexion puis relance la lecture.";
-    document.getElementById("fallback").style.display = "block";
-    document.getElementById("fbBtn").textContent = "Réessayer";
-    document.getElementById("fbBtn").onclick = () => { idx = 0; token++; tryServer(); };
+  if (!cands.length) {
+    setStatus("Aucun serveur n'accepte ce titre.", "Ce titre n'a pas d'identifiant compatible (fréquent pour les animes rares). Relance, ou utilise un autre titre.");
+    showFallback("Réessayer");
+    document.getElementById("fbBtn").onclick = () => location.reload();
     return;
   }
-  const p = cands[idx++];
-  const id = p.kind === "imdb" ? IMP : TMP;
-  const url = s != null ? p.t(id, s, e) : p.m(id);
-  setStatus("Essai du serveur " + p.name + "…");
+  // Sonde tous les serveurs EN PARALLÈLE : le 1er à répondre part (gain de temps sur réseau lent)
   const tk = ++token;
-  window["__chk" + tk] = function(resp){
-    if (tk !== token) return;
-    if (resp.status >= 400) { tryServer(); return; }
-    token = -1;
-    CUR = url;
-    document.getElementById("frame").src = url;
-    document.getElementById("status").style.display = "none";
-  };
-  try { App.fetch(url, "__chk" + tk); } catch(err) { tryServer(); return; }
-  setTimeout(function(){ if (tk === token) tryServer(); }, 12000);
+  let settled = false;
+  cands.forEach((p, i) => {
+    const cb = "__chk" + tk + "_" + i;
+    window[cb] = function(resp){
+      if (tk !== token || settled) return;
+      let st = resp.status;
+      if (PROBE_PREFIX && st === 200) {
+        try { st = JSON.parse(resp.body).status; } catch(e) { st = 0; }
+      }
+      if (st !== 200) return;
+      settled = true;
+      win(urlFor(p));
+    };
+    try { probe(urlFor(p), cb); } catch(err) {}
+  });
+  setStatus("Recherche du meilleur serveur…", cands.length + " serveurs sondés en parallèle.");
+  // Personne n'a répondu en 8 s → on tente le 1er serveur directement dans l'iframe
+  // (certains serveurs répondent mal aux sondes mais chargent bien en lecture).
+  setTimeout(function(){
+    if (tk !== token || settled) return;
+    settled = true;
+    win(urlFor(cands[0]));
+    showFallback();
+  }, 8000);
 }
 document.getElementById("fbBtn").onclick = () => { if (CUR) location.href = CUR; };
 tryServer();

@@ -75,6 +75,41 @@ const server = http.createServer((req, res) => {
   /* ── Santé ── */
   if (p === "/healthz") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, app: "flixplay-web" })); return; }
 
+  /* ── Sonde de serveurs de lecture : même origine (pas de CORS), ne renvoie que le statut HTTP.
+         Les sites d'embed ne renvoient pas d'en-tête CORS → une fetch directe du navigateur est
+         impossible ; la sonde passe donc par le serveur. ── */
+  if (p === "/probe" || p.startsWith("/probe/")) {
+    const target = p.slice("/probe".length).replace(/^\/+/, "");
+    let tu = null;
+    try { tu = new URL(target); } catch (e) {}
+    const reply = (status) => {
+      if (res.writableEnded) return;
+      if (!res.headersSent) res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
+      res.end(JSON.stringify({ status }));
+    };
+    if (!tu || (tu.protocol !== "https:" && tu.protocol !== "http:")) { reply(0); return; }
+    const PROBE_HEADERS = { "User-Agent": "Mozilla/5.0 (FlixPlay)", "Accept": "*/*", "Accept-Language": "fr,en" };
+    (function doGet(u, hops) {
+      const mod = u.protocol === "https:" ? https : http;
+      const r = mod.get(u, { headers: PROBE_HEADERS }, (up) => {
+        const code = up.statusCode || 0;
+        if (code >= 300 && code < 400 && up.headers.location && hops > 0) {
+          up.destroy();
+          let nx = null;
+          try { nx = new URL(up.headers.location, u); } catch (e) {}
+          if (nx) doGet(nx, hops - 1); else reply(0);
+        } else {
+          up.destroy();
+          reply(code);
+        }
+      });
+      r.setTimeout(9000, () => { r.destroy(new Error("probe timeout")); });
+      r.on("error", () => reply(0));
+      r.on("timeout", () => reply(0));
+    })(tu, 3);
+    return;
+  }
+
   /* ── Fichiers statiques ── */
   let sp = p;
   if (sp === "/") sp = "/index.html";

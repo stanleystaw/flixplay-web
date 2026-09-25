@@ -131,7 +131,43 @@ function startPlayback(title, kind, imdb, tmdb, s, e){
 
 /* ─────────── Constantes ─────────── */
 const CINEMETA = "https://v3-cinemeta.strem.io";
-const JIKAN = "https://api.jikan.moe/v4";
+const CINEMETA2 = "https://cinemeta-catalogs.strem.io/top"; // repli direct (le 1er domaine redirige en 307)
+async function cinemeta(path){
+  try { return await api(CINEMETA + path); }
+  catch(e) { return api(CINEMETA2 + path); }
+}
+/* Image à double source : principale → repli → placeholder */
+function imgTag(src, alt, extra){
+  if (!src) return "";
+  return `<img loading="lazy" src="${esc(src)}"${alt ? ` data-alt="${esc(alt)}"` : ""} onerror="fxImgFail(this)"${extra || ""}>`;
+}
+function fxImgFail(img){
+  if (img.dataset.alt) { const a = img.dataset.alt; img.dataset.alt = ""; img.src = a; }
+  else img.remove();
+}
+/* Catalogue de base (base.js) : affiché instantanément à l'arrivée, sans attendre les API */
+const BASE = (typeof window !== "undefined" && window.BASE) ? window.BASE : { films: [], series: [], anime: [], manga: [] };
+const baseHero = () => BASE.films.slice().sort((a, b) => (b.score || 0) - (a.score || 0))[0] || null;
+function baseMovieCard(m, ftype){
+  return `<div class="card" data-ftype="${ftype || "movie"}" data-imdb="${m.imdb}" data-tmdb="">
+    <div class="poster">${imgTag(m.poster, m.alt)}<div class="ph">${ic(ftype === "series" ? "tv" : "film")}</div>
+      ${m.score ? `<span class="badge gray">IMDb ${m.score}</span>` : ""}
+    </div>
+    <div class="info"><div class="t">${esc(m.name)}</div><div class="s">${esc(m.year || "")}</div></div></div>`;
+}
+function heroHTML(m){
+  return `<img class="bg" src="${esc(m.poster)}"${m.alt ? ` data-alt="${esc(m.alt)}"` : ""} onerror="fxImgFail(this)">
+    <div class="ov"></div>
+    <div class="c"><span class="tag">À la une</span>
+      <div class="t">${esc(m.name)}</div>
+      <div class="s">${esc(m.year || "")}${m.genres && m.genres.length ? " · " + esc(m.genres.slice(0, 3).join(" · ")) : ""}${m.score || m.imdbRating ? " · IMDb " + (m.score || m.imdbRating) : ""}</div>
+    </div>
+    <button onclick="movieDetail('${m.imdb}','${m.tmdb || ""}')">${ic("play")}Voir</button>`;
+}
+function setHeroContent(heroEl, m){
+  heroEl.innerHTML = heroHTML(m);
+  heroEl.onclick = (ev) => { if (!ev.target.closest("button")) movieDetail(m.imdb, m.tmdb || ""); };
+}
 /* Sur le web : MangaDex ne permet que son propre domaine (CORS) → passe par notre proxy.
    Dans l'app Android : direct. */
 const MDX = (typeof App !== "undefined" && App.platform && App.platform() === "web")
@@ -241,24 +277,12 @@ function renderTab(t){
 
 /* ═══════════════ FILMS ═══════════════ */
 async function renderFilms(){
-  setView('<div class="hero" id="hero"><div class="spin"></div></div><div id="rails"></div>');
+  setView('<div class="hero" id="hero"></div><div id="rails"></div>');
   const heroEl = document.getElementById("hero");
   const rails = document.getElementById("rails");
-  let metas = [];
-  try { const d = await api(`${CINEMETA}/catalog/movie/top.json`); metas = d.metas || []; } catch(e) {}
-  if (!metas.length) {
-    heroEl.replaceWith(errBox("Impossible de charger le catalogue films", () => renderFilms()));
-  } else {
-    const hero = metas.slice().sort((a,b) => (b.imdbRating||0) - (a.imdbRating||0))[0];
-    heroEl.innerHTML = (hero.poster ? `<img class="bg" src="${esc(hero.poster)}" onerror="this.remove()">` : "") +
-      `<div class="ov"></div>
-       <div class="c"><span class="tag">À la une</span>
-         <div class="t">${esc(hero.name)}</div>
-         <div class="s">${esc(hero.year||"")} · ${esc((hero.genres||[]).slice(0,3).join(" · "))}${hero.imdbRating ? " · IMDb " + hero.imdbRating : ""}</div>
-       </div>
-       <button onclick="movieDetail('${hero.imdb_id}','${hero.moviedb_id||""}')">${ic("play")}Voir</button>`;
-    heroEl.onclick = (ev) => { if (!ev.target.closest("button")) movieDetail(hero.imdb_id, hero.moviedb_id || ""); };
-  }
+  // 1) Catalogue de base : affiché immédiatement (pas d'attente d'API)
+  const bh = baseHero();
+  if (bh) setHeroContent(heroEl, bh);
   // Continuer la lecture
   const hist = HISTORY.filter(h => (h.imdb || h.tmdb) && h.type === "video").slice(0, 10);
   const oldHist = HISTORY.filter(h => !h.imdb && !h.tmdb && h.type === "video" && h.url && h.url.indexOf("player.html") < 0).slice(0, 10);
@@ -281,15 +305,34 @@ async function renderFilms(){
     rails.appendChild(el(`<div class="rail">${FAVORITES.slice(0, 15).map(f => {
       const ico = f.kind === "anime" ? "star" : f.kind === "manga" ? "book" : f.kind === "series" ? "tv" : "film";
       return `<div class="card" data-ftype="fav" data-ref="${esc(f.ref)}" data-name="${esc(f.name||"")}" data-kind="${esc(f.kind||"movie")}" data-tmdb="${esc(f.tmdb||"")}">
-        <div class="poster">${f.poster ? `<img loading="lazy" src="${esc(f.poster)}" onerror="this.remove()">` : ""}<div class="ph">${ic(ico)}</div></div>
+        <div class="poster">${imgTag(f.poster)}<div class="ph">${ic(ico)}</div></div>
         <div class="info"><div class="t">${esc(f.name)}</div><div class="s">${esc(f.sub || "")}</div></div></div>`;
     }).join("")}</div>`));
   }
-  rails.appendChild(el(`<div class="section-title">Trending <small>Cinemeta</small></div>`));
-  rails.appendChild(el(`<div class="rail">${metas.slice(0, 15).map(movieCard).join("")}</div>`));
+  // 2) Populaires : sélection de base, toujours visible
+  if (BASE.films.length) {
+    rails.appendChild(el(`<div class="section-title">Populaires <small>sélection FlixPlay</small></div>`));
+    rails.appendChild(el(`<div class="rail">${BASE.films.map(m => baseMovieCard(m, "movie")).join("")}</div>`));
+  }
+  // 3) Tendances en ligne (Cinemeta) — remplace le hero si le live arrive
+  const trHead = el(`<div class="section-title">Tendances en ligne <small>Cinemeta</small></div>`);
+  const trRail = el('<div class="rail"><div class="spin sm" style="margin:14px"></div></div>');
+  rails.appendChild(trHead); rails.appendChild(trRail);
+  cinemeta("/catalog/movie/top.json").then(d => {
+    const metas = d.metas || [];
+    if (!metas.length) {
+      trRail.replaceWith(el('<div class="empty" style="padding:10px 0">Tendances en ligne indisponibles — la sélection « Populaires » reste consultable.</div>'));
+      return;
+    }
+    const hero = metas.slice().sort((a,b) => (b.imdbRating||0) - (a.imdbRating||0))[0];
+    if (hero && hero.imdb_id) setHeroContent(heroEl, Object.assign({}, hero, {imdb: hero.imdb_id, tmdb: hero.moviedb_id || "", score: hero.imdbRating}));
+    trRail.innerHTML = metas.slice(0, 15).map(movieCard).join("");
+  }).catch(() => {
+    trRail.replaceWith(el('<div class="empty" style="padding:10px 0">Tendances en ligne indisponibles — la sélection « Populaires » reste consultable.</div>'));
+  });
   for (const [gid, gname] of RAILS) genreRail(rails, gid, gname);
   rails.appendChild(el(`<div class="foot">Source : Cinemeta (Stremio) — 197 000+ titres<br>
-    Recherche = films en domaine public (Internet Archive) · Lecture intégrée automatique<br>
+    Recherche = tous les films (recherche par titre, lecture intégrée) + domaine public (MP4 légal)<br>
     Les flux proviennent de serveurs tiers (zone grise) — usage personnel</div>`));
 }
 function genreRail(container, gid, gname){
@@ -298,7 +341,7 @@ function genreRail(container, gid, gname){
   const rail = el('<div class="rail"><div class="spin sm" style="margin:14px"></div></div>');
   const load = () => {
     rail.innerHTML = '<div class="spin sm" style="margin:14px"></div>';
-    api(`${CINEMETA}/catalog/movie/genre:${gid}.json`).then(d => {
+    cinemeta(`/catalog/movie/genre:${gid}.json`).then(d => {
       const m = (d.metas || []).slice(0, 15);
       rail.innerHTML = m.length ? m.map(movieCard).join("")
         : '<div class="empty" style="padding:16px 0">Aucun titre dans ce genre.</div>';
@@ -310,7 +353,7 @@ function genreRail(container, gid, gname){
 }
 function movieCard(m){
   return `<div class="card" data-ftype="movie" data-imdb="${m.imdb_id}" data-tmdb="${m.moviedb_id||""}">
-    <div class="poster">${m.poster ? `<img loading="lazy" src="${esc(m.poster)}" onerror="this.remove()">` : ""}<div class="ph">${ic("film")}</div>
+    <div class="poster">${imgTag(m.poster)}<div class="ph">${ic("film")}</div>
       ${m.imdbRating ? `<span class="badge gray">IMDb ${m.imdbRating}</span>` : ""}
     </div>
     <div class="info"><div class="t">${esc(m.name)}</div><div class="s">${esc(m.year||"")}</div></div></div>`;
@@ -318,7 +361,7 @@ function movieCard(m){
 async function movieDetail(imdb, tmdb){
   openModal('<div class="spin"></div>');
   try {
-    const d = (await api(`${CINEMETA}/meta/movie/${imdb}.json`)).meta;
+    const d = (await cinemeta(`/meta/movie/${imdb}.json`)).meta;
     openModal(`
       <div class="m-head">
         <div class="m-cover"><div class="ph">${ic("film")}</div>${d.poster ? `<img src="${esc(d.poster)}" onerror="this.remove()">` : ""}</div>
@@ -337,11 +380,55 @@ async function movieDetail(imdb, tmdb){
   } catch(e) { openModal(errBox("Impossible de charger la fiche", () => movieDetail(imdb, tmdb))); }
 }
 function renderFilmsSearch(qs){
-  setView('<div class="spin"></div>');
+  setView('<div class="spin"></div><div id="srchBox"></div>');
+  const box = document.getElementById("srchBox");
+  // 1) Recherche tous les films par titre → ID IMDb (Wikidata, sans clé)
+  api(`https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(qs)}&language=en&format=json&limit=10`)
+    .then(s => {
+      const qids = (s.search || []).map(r => r.id);
+      if (!qids.length) return Promise.resolve(null);
+      return api(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${qids.join("|")}&props=claims%7Clabels%7Cdescriptions&language=en&format=json`)
+        .then(g => {
+          const rows = [];
+          for (const e of Object.values(g.entities || {})) {
+            const c = e.claims || {};
+            const imdb = c.P345 && c.P345[0] && c.P345[0].mainsnak && c.P345[0].mainsnak.datavalue && c.P345[0].mainsnak.datavalue.value;
+            if (!imdb) continue;
+            const year = c.P577 && c.P577[0] && c.P577[0].mainsnak && c.P577[0].mainsnak.datavalue ? String(c.P577[0].mainsnak.datavalue.value.time || "").slice(1, 5) : "";
+            const name = (e.labels && e.labels.en && e.labels.en.value) || imdb;
+            const desc = (e.descriptions && e.descriptions.en && e.descriptions.en.value) || "";
+            rows.push({imdb, name, desc, year});
+          }
+          return rows.slice(0, 12);
+        });
+    })
+    .then(rows => {
+      rows = rows || [];
+      box.innerHTML = `<div class="section-title">Films <small>recherche « ${esc(qs)} » · lecture intégrée</small></div>` +
+        (rows.length
+          ? `<div class="rows">${rows.map(x => `
+            <div class="row" data-imdb="${x.imdb}">
+              <img class="thumb" loading="lazy" src="https://images.metahub.space/poster/small/${x.imdb}/img" onerror="this.style.visibility='hidden'">
+              <div class="grow"><div class="t">${esc(x.name)}</div><div class="s">${esc(x.year || "")}${x.desc ? " · " + esc(x.desc) : ""}</div></div>
+              <button class="rowbtn" title="Lecture">${ic("play")}</button>
+            </div>`).join("")}</div>`
+          : '<div class="empty">Aucun film identifiable pour cette recherche.<br>Essaie le titre anglais (ex. « Interstellar »).</div>');
+      box.querySelectorAll(".row[data-imdb]").forEach(r => { r.onclick = () => movieDetail(r.dataset.imdb, ""); });
+      renderArchiveSection(qs, box);
+    })
+    .catch(() => {
+      box.innerHTML = `<div class="section-title">Films <small>recherche « ${esc(qs)} »</small></div>
+        <div class="empty">Recherche en ligne indisponible — résultats en domaine public ci-dessous.</div>`;
+      renderArchiveSection(qs, box);
+    });
+}
+function renderArchiveSection(qs, box){
+  const sec = el('<div></div>');
+  box.appendChild(sec);
   api(`https://archive.org/advancedsearch.php?q=${encodeURIComponent(qs + " AND mediatype:movies")}&fl[]=identifier&fl[]=title&fl[]=year&rows=15&output=json`)
     .then(d => {
       const docs = d.docs || [];
-      setView(`<div class="section-title">Recherche « ${esc(qs)} » <small>domaine public · Internet Archive</small></div>
+      sec.innerHTML = `<div class="section-title" style="margin-top:18px">Domaine public <small>Internet Archive · MP4 légal direct</small></div>
         <div class="rows">${docs.map(x => `
           <div class="row" data-id="${esc(x.identifier)}">
             <img class="thumb" src="https://archive.org/services/img/${esc(x.identifier)}" onerror="this.style.visibility='hidden'">
@@ -349,14 +436,14 @@ function renderFilmsSearch(qs){
             <button class="rowbtn" data-act="dl" title="Télécharger">${ic("dl")}</button>
             <button class="rowbtn" data-act="open" title="Voir">${ic("ext")}</button>
           </div>`).join("") || '<div class="empty">Aucun film en domaine public trouvé.<br>Essaie un titre ancien (avant 1964) ou un mot anglais.</div>'}</div>
-        <div class="foot">Télécharger = MP4 direct et légal · Voir = page du film sur archive.org</div>`);
-      view().querySelectorAll(".row[data-id]").forEach(r => {
+        <div class="foot">Télécharger = MP4 direct et légal · Voir = page du film sur archive.org</div>`;
+      sec.querySelectorAll(".row[data-id]").forEach(r => {
         r.querySelector('[data-act="dl"]').onclick = (ev) => { ev.stopPropagation(); archiveDownload(r.dataset.id); };
         r.querySelector('[data-act="open"]').onclick = (ev) => { ev.stopPropagation(); App.openUrl("https://archive.org/details/" + r.dataset.id); };
         r.onclick = () => App.openUrl("https://archive.org/details/" + r.dataset.id);
       });
     })
-    .catch(() => setView(errBox("Recherche impossible", () => renderFilmsSearch(qs))));
+    .catch(() => { sec.innerHTML = ""; });
 }
 function archiveDownload(identifier){
   addDownload({id: identifier, title: identifier, type: "film", icon: "film", path: ""});
@@ -379,18 +466,26 @@ function renderSeries(){
       .map((v,i) => `<button class="chip ${serGenre===v?"on":""}" data-g="${v}">${labels[i]}</button>`).join("")}</div><div class="spin"></div>`);
   view().querySelectorAll("[data-g]").forEach(c => c.onclick = () => { serGenre = c.dataset.g; renderSeries(); });
   const box = view().querySelector(".spin");
+  // Sélection de base : affichée immédiatement
+  if (!serGenre && BASE.series.length) {
+    const head = el(`<div class="section-title">Populaires <small>sélection FlixPlay</small></div>`);
+    const grid = el(`<div class="grid">${BASE.series.map(m => baseMovieCard(m, "series")).join("")}</div>`);
+    view().insertBefore(grid, box);
+    view().insertBefore(head, box);
+  }
   const cat = serGenre ? "genre:" + serGenre : "top";
-  api(`${CINEMETA}/catalog/series/${cat}.json`).then(d => {
+  cinemeta(`/catalog/series/${cat}.json`).then(d => {
     const metas = d.metas || [];
-    box.replaceWith(frag(`<div class="section-title">Séries <small>${metas.length} titres · Cinemeta</small></div>
+    box.replaceWith(frag(`<div class="section-title">${serGenre ? "Séries" : "Toutes les séries"} <small>${metas.length} titres · Cinemeta</small></div>
       <div class="grid">${metas.map(movieCard).join("") || '<div class="empty">Aucune série.</div>'}</div>
       <div class="foot">Recherche en haut = TVmaze · Lecture intégrée automatique</div>`));
-  }).catch(() => box.replaceWith(errBox("Impossible de charger les séries", () => renderSeries())));
+  }).catch(() => box.replaceWith(frag(`<div class="empty">Séries en ligne indisponibles — la sélection « Populaires » reste consultable.</div>
+      <div class="foot">Recherche en haut = TVmaze · Lecture intégrée automatique</div>`)));
 }
 async function seriesDetail(imdb, tmdb){
   openModal('<div class="spin"></div>');
   try {
-    const d = (await api(`${CINEMETA}/meta/series/${imdb}.json`)).meta;
+    const d = (await cinemeta(`/meta/series/${imdb}.json`)).meta;
     const vids = d.videos || [];
     const seasons = {};
     vids.forEach(v => { (seasons[v.season] = seasons[v.season] || []).push(v); });
@@ -493,20 +588,36 @@ async function renderAnime(){
   </div><div class="spin"></div>`);
   view().querySelectorAll("[data-m]").forEach(c => c.onclick = () => { animeMode = c.dataset.m; renderAnime(); });
   const box = view().querySelector(".spin");
+  // Incontournables : affichés immédiatement
+  if (BASE.anime.length) {
+    const head = el(`<div class="section-title">Incontournables <small>sélection FlixPlay</small></div>`);
+    const grid = el(`<div class="grid">${BASE.anime.map(animeCardBase).join("")}</div>`);
+    view().insertBefore(grid, box);
+    view().insertBefore(head, box);
+  }
   let data = [];
   try { data = await animeListData(animeMode); } catch(e) {}
   data = data || [];
   box.replaceWith(data.length
-    ? frag(`<div class="section-title">Anime <small>${data.length} titres · AniList / MyAnimeList</small></div>
+    ? frag(`<div class="section-title">Anime en ligne <small>${data.length} titres · AniList / MyAnimeList</small></div>
          <div class="grid">${data.map(animeCard).join("")}</div>
-         <div class="foot">Lecture intégrée automatique, ou lecteur externe si nécessaire</div>`)
-    : errBox("Impossible de charger les anime", () => renderAnime()));
+         <div class="foot">Lecture intégrée automatique, ou lecteur officiel si nécessaire</div>`)
+    : frag(`<div class="empty">Anime en ligne indisponibles — la sélection « Incontournables » reste consultable.</div>`));
+}
+function animeCardBase(a){
+  return `<div class="card" data-ftype="anime" data-mal="${a.mal}">
+    <div class="poster">${imgTag(a.poster, a.alt)}<div class="ph">${ic("star")}</div>
+      ${a.score ? `<span class="badge gray">${a.score}/10</span>` : ""}
+    </div>
+    <div class="info"><div class="t">${esc(a.name)}</div>
+      <div class="s">${a.ep ? a.ep + " ep" : ""}${String(a.status||"").toUpperCase() === "RELEASING" ? " · en cours" : ""}</div></div></div>`;
 }
 function animeCard(a){
   const img = (a.coverImage && a.coverImage.large) || "";
+  const alt = img.indexOf("/large/") >= 0 ? img.replace("/large/", "/small/") : "";
   const score = a.averageScore ? Math.round(a.averageScore/10*10)/10 : null;
   return `<div class="card" data-ftype="anime" data-mal="${a.idMal}">
-    <div class="poster">${img ? `<img loading="lazy" src="${esc(img)}" onerror="this.remove()">` : ""}<div class="ph">${ic("star")}</div>
+    <div class="poster">${imgTag(img, alt)}<div class="ph">${ic("star")}</div>
       ${score ? `<span class="badge gray">${score}/10</span>` : ""}
     </div>
     <div class="info"><div class="t">${esc(a.title.romaji)}</div>
@@ -638,13 +749,27 @@ function renderManga(){
   </div><div class="spin"></div>`);
   view().querySelectorAll("[data-m]").forEach(c => c.onclick = () => { mangaMode = c.dataset.m; renderManga(); });
   const box = view().querySelector(".spin");
+  // Incontournables : affichés immédiatement (couvertures incluses)
+  if (BASE.manga.length) {
+    const head = el(`<div class="section-title">Incontournables <small>sélection FlixPlay</small></div>`);
+    const grid = el(`<div class="grid">${BASE.manga.map(m => mangaCardBase(m)).join("")}</div>`);
+    view().insertBefore(grid, box);
+    view().insertBefore(head, box);
+  }
   const url = mangaMode === "latest"
     ? `${MDX}/manga?limit=24&order[latestUploadedChapter]=desc&hasAvailableChapters=true`
     : `${MDX}/manga?limit=24&order[followedCount]=desc&hasAvailableChapters=true`;
   api(url).then(d => {
-    box.replaceWith(el(`<div class="section-title">Manga <small>${(d.data||[]).length} titres · MangaDex, mises à jour en continu</small></div>`));
+    box.replaceWith(el(`<div class="section-title">Manga en ligne <small>${(d.data||[]).length} titres · MangaDex, mises à jour en continu</small></div>`));
     loadMangaCovers(d.data || []);
-  }).catch(() => box.replaceWith(errBox("Impossible de charger les manga", () => renderManga())));
+  }).catch(() => box.replaceWith(el(`<div class="empty">Manga en ligne indisponibles — la sélection « Incontournables » reste consultable.</div>`)));
+}
+function mangaCardBase(m){
+  return `<div class="card" data-ftype="manga" data-mid="${m.mid}">
+    <div class="poster">${imgTag(m.poster, m.alt)}<div class="ph">${ic("book")}</div>
+      <span class="badge grad">Sélection</span>
+    </div>
+    <div class="info"><div class="t">${esc(m.name)}</div></div></div>`;
 }
 async function loadMangaCovers(items){
   const holder = el(`<div class="grid">${items.map(mangaCard).join("") || '<div class="empty">Aucun manga.</div>'}</div>`);
