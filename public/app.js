@@ -122,11 +122,33 @@ window.__dlDone = function(id, path){
 
 /* ─────────── Lecture intégrée : le meilleur serveur est choisi automatiquement ─────────── */
 function startPlayback(title, kind, imdb, tmdb, s, e){
-  const u = "player.html?t=" + encodeURIComponent(title) + "&imdb=" + (imdb || "") +
+  const u = "player.html?t=" + encodeURIComponent(title) + "&kind=" + encodeURIComponent(kind || "film") +
+    "&imdb=" + (imdb || "") +
     "&tmdb=" + (tmdb || "") + "&s=" + (s == null ? "" : s) + "&e=" + (e == null ? "" : e);
   addHistory({title, kind, imdb, tmdb, s, e, type:"video", url: u,
     ref: (imdb || tmdb || "") + (s != null ? ":" + s + ":" + e : "")});
   location.href = u;
+}
+/* Lecture NATIVE d'un flux direct (Internet Archive) : <video> + hls.js, aucun intermédiaire */
+function startDirect(url, kind, title){
+  const u = "player.html?t=" + encodeURIComponent(title || "Lecture") + "&kind=film" +
+    "&direct=" + encodeURIComponent(url) + "&directKind=" + (kind || "mp4");
+  addHistory({title: title || "Lecture", kind: "film", type: "video", url: u, ref: "direct:" + title});
+  location.href = u;
+}
+async function archivePlay(identifier){
+  toast("Préparation de la lecture…");
+  try {
+    const meta = await api(`https://archive.org/metadata/${identifier}`);
+    const files = (meta.files || []).filter(f => /\.(mp4|m3u8|webm|ogv)$/i.test(f.name));
+    if (!files.length) { toast("Aucun flux vidéo disponible pour ce titre"); return; }
+    const mp4 = files.filter(f => /\.mp4$/i.test(f.name)).sort((a, b) => (parseInt(a.size) || 0) - (parseInt(b.size) || 0));
+    const hls = files.filter(f => /\.m3u8$/i.test(f.name));
+    const f = mp4.length ? mp4[0] : (hls.length ? hls[0] : files[0]);
+    const kind = /\.m3u8$/i.test(f.name) ? "hls" : "mp4";
+    const url = `https://archive.org/download/${identifier}/${encodeURIComponent(f.name)}`;
+    startDirect(url, kind, meta.title || identifier);
+  } catch(e) { toast("Impossible de préparer la lecture"); }
 }
 
 /* ─────────── Constantes ─────────── */
@@ -428,19 +450,21 @@ function renderArchiveSection(qs, box){
   api(`https://archive.org/advancedsearch.php?q=${encodeURIComponent(qs + " AND mediatype:movies")}&fl[]=identifier&fl[]=title&fl[]=year&rows=15&output=json`)
     .then(d => {
       const docs = d.docs || [];
-      sec.innerHTML = `<div class="section-title" style="margin-top:18px">Domaine public <small>Internet Archive · MP4 légal direct</small></div>
+      sec.innerHTML = `<div class="section-title" style="margin-top:18px">Domaine public <small>Internet Archive · MP4 légal, lecture directe</small></div>
         <div class="rows">${docs.map(x => `
           <div class="row" data-id="${esc(x.identifier)}">
             <img class="thumb" src="https://archive.org/services/img/${esc(x.identifier)}" onerror="this.style.visibility='hidden'">
             <div class="grow"><div class="t">${esc(x.title||x.identifier)}</div><div class="s">${esc(x.year||"")}</div></div>
+            <button class="rowbtn" data-act="play" title="Lire">${ic("play")}</button>
             <button class="rowbtn" data-act="dl" title="Télécharger">${ic("dl")}</button>
             <button class="rowbtn" data-act="open" title="Voir">${ic("ext")}</button>
           </div>`).join("") || '<div class="empty">Aucun film en domaine public trouvé.<br>Essaie un titre ancien (avant 1964) ou un mot anglais.</div>'}</div>
-        <div class="foot">Télécharger = MP4 direct et légal · Voir = page du film sur archive.org</div>`;
+        <div class="foot">Lire = flux MP4 direct (lecteur intégré) · Télécharger = MP4 légal · Voir = page archive.org</div>`;
       sec.querySelectorAll(".row[data-id]").forEach(r => {
+        r.querySelector('[data-act="play"]').onclick = (ev) => { ev.stopPropagation(); archivePlay(r.dataset.id); };
         r.querySelector('[data-act="dl"]').onclick = (ev) => { ev.stopPropagation(); archiveDownload(r.dataset.id); };
         r.querySelector('[data-act="open"]').onclick = (ev) => { ev.stopPropagation(); App.openUrl("https://archive.org/details/" + r.dataset.id); };
-        r.onclick = () => App.openUrl("https://archive.org/details/" + r.dataset.id);
+        r.onclick = () => archivePlay(r.dataset.id);
       });
     })
     .catch(() => { sec.innerHTML = ""; });
@@ -680,26 +704,22 @@ function aniModal(mal, d){
 }
 async function animeWatch(mal){
   openModal('<div class="spin"></div>');
-  // 1) Lecture intégrée si TVmaze connaît l'anime (ID IMDb)
+  // 1) Si TVmaze connaît l'anime → ID IMDb (serveurs complémentaires)
   const t1 = window.__aniTitle || "", t2 = window.__aniNative || "";
+  let imdb = "";
   try {
     let res = await api(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(t1)}`);
     if ((!res || !res.length) && t2) res = await api(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(t2)}`);
     const show = res && res[0] && res[0].show;
-    if (show && show.externals && show.externals.imdb) {
-      startPlayback(t1, "anime", show.externals.imdb, "", 1, 1);
-      return;
-    }
+    if (show && show.externals && show.externals.imdb) imdb = show.externals.imdb;
   } catch(e) {}
-  // 2) Lecteur externe (AniList)
-  if (window.__aniExt) {
-    closeModal();
-    toast("Ouverture du lecteur externe…");
-    App.openUrl(window.__aniExt);
-    return;
-  }
-  openModal(`<div class="empty">Aucun lecteur disponible pour « ${esc(t1)} » pour l'instant.
-    <br><br><button class="btn ghost" onclick="closeModal()">Fermer</button></div>`);
+  // 2) Lecteur par titre (VidSrc anime) — fonctionne sans aucun ID,
+  //    avec le lecteur officiel AniList (Crunchyroll…) en secours
+  const ext = window.__aniExt ? "&ext=" + encodeURIComponent(window.__aniExt) : "";
+  const u = "player.html?t=" + encodeURIComponent(t1) + "&kind=anime" + (imdb ? "&imdb=" + imdb : "") + ext;
+  addHistory({title: t1, kind: "anime", imdb, type: "video", url: u, ref: (imdb || "anime:" + t1)});
+  closeModal();
+  location.href = u;
 }
 function renderAnimeSearch(qs){
   setView('<div class="spin"></div>');

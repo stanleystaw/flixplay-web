@@ -88,7 +88,7 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ status }));
     };
     if (!tu || (tu.protocol !== "https:" && tu.protocol !== "http:")) { reply(0); return; }
-    const PROBE_HEADERS = { "User-Agent": "Mozilla/5.0 (FlixPlay)", "Accept": "*/*", "Accept-Language": "fr,en" };
+    const PROBE_HEADERS = { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1", "Accept": "*/*", "Accept-Language": "fr,en" };
     (function doGet(u, hops) {
       const mod = u.protocol === "https:" ? https : http;
       const r = mod.get(u, { headers: PROBE_HEADERS }, (up) => {
