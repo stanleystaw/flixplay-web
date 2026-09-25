@@ -137,7 +137,7 @@ const server = http.createServer((req, res) => {
     const ext = path.extname(fp).toLowerCase();
     res.writeHead(200, {
       "content-type": MIME[ext] || "application/octet-stream",
-      "cache-control": ext === ".html" ? "no-cache" : "max-age=3600",
+      "cache-control": (ext === ".html" || ext === ".js" || ext === ".css") ? "no-cache" : "max-age=86400",
     });
     fs.createReadStream(fp).pipe(res);
   });
