@@ -36,6 +36,7 @@ body { background:var(--bg); color:#fff; font-family:"Mulish","Segoe UI",system-
   <div id="vidwrap"><video id="vid" controls playsinline autoplay></video></div>
   <div id="status"><div class="spin"></div><div id="statusTxt">Préparation de la lecture…</div><small>Le meilleur serveur est choisi automatiquement.</small></div>
   <button id="svNext" style="display:none;position:absolute;bottom:14px;right:14px;z-index:6;background:rgba(23,27,36,.94);color:#DDE3EC;border:0;border-radius:10px;padding:9px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.45)">Autre serveur</button>
+  <button id="svExt" style="display:none;position:absolute;bottom:56px;right:14px;z-index:6;background:#2166E5;color:#fff;border:0;border-radius:10px;padding:9px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.45)">Lecteur officiel</button>
 </div>
 <div id="fallback"></div>
 <script src="hls.min.js"></script>
@@ -139,20 +140,24 @@ else {
     const frame = document.getElementById("frame");
     frame.style.display = "block";
     let loaded = false;
-    frame.addEventListener("load", function(){
+    if (frame.__onl) frame.removeEventListener("load", frame.__onl);
+    frame.__onl = function(){
+      if (frame.__cur !== url) return; // un autre serveur a pris la main entre-temps
       loaded = true;
       clearTimeout(frame.__t);
       if (window.FXLOG) FXLOG.log("INFO", "Iframe « " + nm + " » chargé — si rien ne joue, touche « Autre serveur »");
-    });
+    };
+    frame.__cur = url;
+    frame.addEventListener("load", frame.__onl);
     // Iframe qui ne charge jamais (serveur mort ou bloqué) → passer au suivant
     clearTimeout(frame.__t);
     frame.__t = setTimeout(function(){
       if (loaded || CUR !== url) return;
       if (cands.length < 2) return;
       const ni = (curIdx + 1) % cands.length;
-      if (window.FXLOG) FXLOG.log("API-KO", "Iframe « " + nm + " » n'a pas chargé en 12 s → " + cands[ni].name);
+      if (window.FXLOG) FXLOG.log("API-KO", "Iframe « " + nm + " » n'a pas chargé en 20 s → " + cands[ni].name);
       win(cands[ni].url, ni);
-    }, 12000);
+    }, 20000);
     frame.src = url;
     // Bouton « Autre serveur » : bascule manuelle (ex. VidSrc vide/bloqué → 2Embed)
     const sv = document.getElementById("svNext");
@@ -166,6 +171,14 @@ else {
           win(cands[ni].url, ni);
         };
       } else sv.style.display = "none";
+    }
+    const se = document.getElementById("svExt");
+    if (se && EXT && !DIRECT) {
+      se.style.display = "block";
+      se.onclick = function(){
+        if (window.FXLOG) FXLOG.log("NAV", "Lecteur officiel ouvert : " + EXT);
+        window.open(EXT, "_blank", "noopener");
+      };
     }
     hideStatus();
   }
