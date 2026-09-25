@@ -1,0 +1,13 @@
+{
+  "name": "flixplay-web",
+  "version": "4.0.0",
+  "private": true,
+  "description": "FlixPlay — films, séries, anime, manga (à jour), TV direct. Version web.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
