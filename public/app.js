@@ -149,7 +149,7 @@ async function asamaPlay(title){
   toast("Préparation de la lecture…");
   let mal = "", ext = "";
   try {
-    const d = (await anilist(`Page(perPage:1){ media(search: $q, type: ANIME){ idMal streamingEpisodes{ url } } }`, {q: title})).Page.media;
+    const d = (await anilist(`query($q:String){ Page(perPage:1){ media(search: $q, type: ANIME){ idMal streamingEpisodes{ url } } } }`, {q: title})).Page.media;
     if (d && d.length) {
       mal = d[0].idMal || "";
       ext = (d[0].streamingEpisodes && d[0].streamingEpisodes[0] && d[0].streamingEpisodes[0].url) || "";
@@ -624,9 +624,9 @@ function curSeasonAni(){
 async function animeListData(mode){
   try {
     if (mode === "top")
-      return (await anilist(`Page(perPage:24){ media(type: ANIME, sort: POPULARITY_DESC){ ${ANI_MEDIA} } }`)).Page.media;
+      return (await anilist(`{ Page(perPage:24){ media(type: ANIME, sort: POPULARITY_DESC){ ${ANI_MEDIA} } } }`)).Page.media;
     const [season, , year] = curSeasonAni();
-    return (await anilist(`Page(perPage:24){ media(type: ANIME, season: ${season}, seasonYear: ${year}, sort: POPULARITY_DESC){ ${ANI_MEDIA} } }`)).Page.media;
+    return (await anilist(`{ Page(perPage:24){ media(type: ANIME, season: ${season}, seasonYear: ${year}, sort: POPULARITY_DESC){ ${ANI_MEDIA} } } }`)).Page.media;
   } catch(e) {}
   // Secours : Jikan (MyAnimeList)
   const url = mode === "top" ? `${JIKAN}/top/anime?limit=24` : `${JIKAN}/anime?status=airing&limit=24`;
@@ -752,7 +752,7 @@ function aniStatus(s){
 async function animeDetail(mal){
   openModal('<div class="spin"></div>');
   try {
-    const d = (await anilist(`Media(idMal: ${mal}){ ${ANI_MEDIA} description genres streamingEpisodes{ title url } }`)).Media;
+    const d = (await anilist(`{ Media(idMal: ${mal}){ ${ANI_MEDIA} description genres streamingEpisodes{ title url } } }`)).Media;
     window.__aniTitle = d.title.romaji;
     window.__aniNative = d.title.native || "";
     window.__aniExt = (d.streamingEpisodes && d.streamingEpisodes[0] && d.streamingEpisodes[0].url)
@@ -820,7 +820,7 @@ function renderAnimeSearch(qs){
   setView('<div class="spin"></div>');
   (async () => {
     let data = [];
-    try { data = (await anilist(`Page(perPage:24){ media(search: $q, type: ANIME){ ${ANI_MEDIA} } }`, {q: qs})).Page.media; }
+    try { data = (await anilist(`query($q:String){ Page(perPage:24){ media(search: $q, type: ANIME){ ${ANI_MEDIA} } } }`, {q: qs})).Page.media; }
     catch(e) {}
     if (!data.length) {
       try {
