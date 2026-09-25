@@ -652,9 +652,32 @@ async function renderAnime(){
 function renderAsamaSection(){
   const head = el(`<div class="section-title" style="margin-top:18px">Anime-Sama <small>catalogue francophone · sans inscription</small></div>`);
   const rail = el('<div class="rail"><div class="spin sm" style="margin:14px"></div></div>');
-  api(`${ASAMA}/animes?action=searchByCategory&categories=Action,Aventure,Comedie,Drame,Romance`).then(d => {
-    const res = (d.data && d.data.results) || [];
-    rail.innerHTML = res.length ? res.slice(0, 15).map(x => `
+  // L'API Anime-Sama renvoie 0 résultat avec 3 catégories ou plus dans l'URL :
+  // 5 appels parallèles par catégorie, fusion dedupée en round-robin (diversité)
+  const CATS = ["Action","Aventure","Drame","Romance","Comedie"];
+  Promise.all(CATS.map(cat =>
+    api(`${ASAMA}/animes?action=searchByCategory&categories=${encodeURIComponent(cat)}`)
+      .then(d => (d.data && d.data.results) || []).catch(() => [])
+  )).then(lists => {
+    const seen = new Set();
+    const res = [];
+    let i = 0;
+    while (res.length < 15) {
+      let added = false;
+      for (const l of lists) {
+        const x = l[i];
+        if (!x) continue;
+        const k = (x.name || "").toLowerCase();
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        res.push(x);
+        added = true;
+        if (res.length >= 15) break;
+      }
+      if (!added) break;
+      i++;
+    }
+    rail.innerHTML = res.length ? res.map(x => `
       <div class="card" data-ftype="asama" data-title="${esc(x.name)}">
         <div class="poster">${imgTag(x.imageurl)}<div class="ph">${ic("star")}</div>
           ${x.vote ? `<span class="badge gray">${Math.round((x.vote || 0) / 1000)}k votes</span>` : ""}
